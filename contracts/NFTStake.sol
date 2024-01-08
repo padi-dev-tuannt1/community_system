@@ -38,7 +38,7 @@ contract NFTStake is
     // ******** //
 
     event ItemsStaked(
-        uint256[] tokenId,
+        uint256 tokenId,
         address owner,
         uint256 timestamp,
         uint256 season
@@ -71,35 +71,25 @@ contract NFTStake is
         rewardToken = IERC20(_rewardToken);
     }
 
-    function stake(uint256[] calldata tokenIds, uint256 _season) external {
-        uint256 stakedCount = tokenIds.length;
+    function stake(uint256 tokenId, uint256 _season) external {
+        require(stakeInfos[tokenId].status == Status.UnStake, "Already stake");
 
-        for (uint256 i; i < stakedCount; ) {
-            uint256 tokenId = tokenIds[i];
-            require(
-                stakeInfos[tokenId].status == Status.UnStake,
-                "Already stake"
-            );
-
-            if (nft.ownerOf(tokenId) != msg.sender) {
-                revert NotItemOwner();
-            }
-
-            stakeInfos[tokenId] = Stake(
-                msg.sender,
-                block.timestamp,
-                Status.Stake,
-                _season
-            );
-
-            nft.safeTransferFrom(msg.sender, address(this), tokenId);
-
-            unchecked {
-                ++i;
-            }
+        if (nft.ownerOf(tokenId) != msg.sender) {
+            revert NotItemOwner();
         }
 
-        emit ItemsStaked(tokenIds, msg.sender, block.timestamp, _season);
+        require(stakeInfos[tokenId].season < _season, "Invalid season");
+
+        stakeInfos[tokenId] = Stake(
+            msg.sender,
+            block.timestamp,
+            Status.Stake,
+            _season
+        );
+
+        nft.safeTransferFrom(msg.sender, address(this), tokenId);
+
+        emit ItemsStaked(tokenId, msg.sender, block.timestamp, _season);
     }
 
     function createReward(
@@ -130,11 +120,7 @@ contract NFTStake is
         uint256 claimable = rewardAmounts[msg.sender][_season];
         require(claimable > 0, "Nothing to claim");
 
-        _processPayment(
-            address(this),
-            msg.sender,
-            claimable * 10 ** rewardToken.decimals()
-        );
+        _processPayment(address(this), msg.sender, claimable);
         rewardAmounts[msg.sender][_season] = 0;
         emit Retrieved(msg.sender, claimable, _season);
     }
@@ -173,7 +159,7 @@ contract NFTStake is
         require(staker != address(this), "Cannot reward for self");
         require(reward != 0, "Reward cannot be zero");
 
-        rewardAmounts[staker][_season] = reward;
+        rewardAmounts[staker][_season] = reward * 10 ** rewardToken.decimals();
         emit RewardCreated(staker, reward, _season);
     }
 

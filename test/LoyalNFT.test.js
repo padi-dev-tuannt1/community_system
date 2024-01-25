@@ -1,67 +1,104 @@
 const { ethers, upgrades } = require("hardhat");
 const { expect } = require("chai");
 
-describe("CP Token", async () => {
+describe("Loyal NFT", async () => {
     let owner;
     let addr1;
     let addr2;
+    let devAddress;
     let loyalNFTContract;
     let erc20Token;
-
+    let prices;
+    let administrator;
 
     before(async () => {
         [owner, addr1, addr2] = await ethers.getSigners();
-        erc20Token = await (await ethers.getContractFactory("CPToken")).deploy()
+        erc20Token = await (await ethers.getContractFactory("USDC")).deploy()
+        const administratorFactory = await ethers.getContractFactory("Administrators")
+        administrator = await administratorFactory.deploy([owner.address, addr1.address, addr2.address], 2);
         const loyalFactory = await ethers.getContractFactory("LoyalNFT");
-        loyalNFTContract = await loyalFactory.deploy(erc20Token.address, "http://ipfs")
+        prices = [1000, 1010, 1020, 1030, 1040, 1050, 1060, 1070, 1080, 1090, 1100];
 
-        erc20Token.connect(addr1).mint(10000000);
+        devAddress = "0xe42B1F6BE2DDb834615943F2b41242B172788E7E"
+        loyalNFTContract = await loyalFactory.deploy(erc20Token.address, "http://ipfs", devAddress, prices, administrator.address)
+
+        erc20Token.connect(addr1).mint(1000000000000000);
     });
 
     describe("Buy NFT", () => {
         it("Fail because not approve enough money", async () => {
-            await expect(loyalNFTContract.connect(addr1).buy()).to.revertedWith("ERC20: insufficient allowance")
+            await expect(loyalNFTContract.connect(addr1).buy(1)).to.revertedWith("ERC20: insufficient allowance")
         });
 
         it("Buy 1 NFT successfully", async () => {
             const price = await loyalNFTContract.getCurrentPrice();
             await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther(price.toString()))
-            await loyalNFTContract.connect(addr1).buy()
+            const tx = await loyalNFTContract.connect(addr1).buy(1)
+            const receipt = await tx.wait(1);
             expect(await loyalNFTContract.totalSold()).to.equal("1")
-            expect(await loyalNFTContract.totalSoldPublic()).to.equal("0")
             expect(await erc20Token.balanceOf(loyalNFTContract.address)).to.equal(ethers.utils.parseEther(price.toString()))
         });
 
-        it("Buy all private NFTs", async () => {
-            await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther("10000000"))
-            for (i = 1; i < 1400; i++) {
-                await loyalNFTContract.connect(addr1).buy()
-            }
-        });
+        it("Buy NFT in different range of price", async () => {
+            //buy first 1000 NFT
+            let price = await loyalNFTContract.getCurrentPrice();
+            await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther((price * 1000).toString()))
+            await loyalNFTContract.connect(addr1).buy(200)
+            await loyalNFTContract.connect(addr1).buy(200)
+            await loyalNFTContract.connect(addr1).buy(200)
+            await loyalNFTContract.connect(addr1).buy(200)
+            await loyalNFTContract.connect(addr1).buy(200)
+            expect(await loyalNFTContract.totalSold()).to.equal("1001")
+            expect(await loyalNFTContract.getCurrentPrice()).to.equal("1000")
 
-        it("Price change when buy 40 NFT in public sale", async () => {
-            for (i = 1; i <= 40; i++) {
-                await loyalNFTContract.connect(addr1).buy()
-            }
-            expect((await loyalNFTContract.getCurrentPrice()).toString()).to.equal("1020")
-            expect((await loyalNFTContract.totalSupply()).toString()).to.equal("1440")
-        });
+            //After totalSold reach 1200 it change the price
+            await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther((price * 199).toString()))
+            await loyalNFTContract.connect(addr1).buy(199)
+            expect(await loyalNFTContract.totalSold()).to.equal("1200")
+            expect(await loyalNFTContract.getCurrentPrice()).to.equal("1010")
+
+
+            price = await loyalNFTContract.getCurrentPrice();
+            await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther((price * 100).toString()))
+            await loyalNFTContract.connect(addr1).buy(100)
+            expect(await loyalNFTContract.totalSold()).to.equal("1300")
+            expect(await loyalNFTContract.getCurrentPrice()).to.equal("1010")
+
+            //After totalSold reach 1400 it change the price
+            await erc20Token.connect(addr1).approve(loyalNFTContract.address, ethers.utils.parseEther((price * 100).toString()))
+            await loyalNFTContract.connect(addr1).buy(100)
+            expect(await loyalNFTContract.totalSold()).to.equal("1400")
+            expect(await loyalNFTContract.getCurrentPrice()).to.equal("1020")
+
+        })
 
         it("Drop NFT for team successfully", async () => {
-            await loyalNFTContract.dropNFTForTeam()
-            expect((await loyalNFTContract.totalSupply()).toString()).to.equal("1560")
+            await administrator.connect(owner).submitTransaction(
+                loyalNFTContract.address,
+                0,
+                loyalNFTContract.interface.encodeFunctionData("dropNFTForTeam")
+            )
+
+            await administrator.connect(addr1).confirmTransaction(0)
+            await administrator.connect(owner).confirmTransaction(0)
+
+            await administrator.connect(addr1).executeTransaction(0)
+
+            expect((await loyalNFTContract.connect(devAddress).balanceOf(devAddress)).toNumber()).greaterThan(0)
         })
 
         it("Can't drop NFT if you already drop", async () => {
-            await expect(loyalNFTContract.dropNFTForTeam()).to.be.reverted
+            await administrator.connect(owner).submitTransaction(
+                loyalNFTContract.address,
+                0,
+                loyalNFTContract.interface.encodeFunctionData("dropNFTForTeam")
+            )
+
+            await administrator.connect(addr1).confirmTransaction(1)
+            await administrator.connect(owner).confirmTransaction(1)
+
+            await expect(administrator.connect(addr1).executeTransaction(1)).to.be.reverted
         })
 
-        it("Can Drop NFT again when user buy enough NFT", async () => {
-            for (i = 1; i <= 400; i++) {
-                await loyalNFTContract.connect(addr1).buy()
-            }
-            await loyalNFTContract.dropNFTForTeam()
-            console.log((await loyalNFTContract.totalSupply()).toString())
-        })
     });
 });

@@ -11,14 +11,11 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
     IERC20 token;
 
     uint256 public constant MAX_SUPPLY = 14000;
-    uint256 private constant MAX_PRIVATE_BUY = 1400;
     uint256 private constant MAX_BUY = 11000;
-    uint256 private price = 1000;
-    address private immutable devAddress =
-        0xe42B1F6BE2DDb834615943F2b41242B172788E7E;
+    uint256 private basePrice = 1000;
+    address private devAddress;
 
     uint256 public totalSold;
-    uint256 public totalSoldPublic;
     uint256 totalDropTimes;
     string tokenBaseURI;
 
@@ -26,42 +23,69 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
     event Withdraw(address owner, uint256 amount);
     event PriceUpdated(uint256 newPrice);
 
+    error LoyalNFT__ExceedBuyQuantity(uint256 quantity);
+    error LoyalNFT__ExceedLimitBuy();
+
+    mapping(uint256 => uint256) rangePriceToPrice; // (totalSold) /200 => price
+
     constructor(
         address _token,
-        string memory _initBaseURI
+        string memory _initBaseURI,
+        address _devAddress,
+        uint256[] memory prices,
+        address _administratorAddress
     ) ERC721A("LoyalNFT", "LNFT") {
         token = IERC20(_token);
         tokenBaseURI = _initBaseURI;
+        devAddress = _devAddress;
+        for (uint256 i = 0; i < prices.length; i++) {
+            rangePriceToPrice[i + 5] = prices[i];
+        }
+        transferOwnership(_administratorAddress);
     }
 
-    function buy() external nonReentrant {
+    function buy(uint256 _quantity) external nonReentrant {
+        uint256 buyPrice;
+
+        if (_quantity > 200) {
+            revert LoyalNFT__ExceedBuyQuantity(_quantity);
+        }
+
+        if (totalSold + _quantity > MAX_BUY) {
+            revert LoyalNFT__ExceedLimitBuy();
+        }
+
+        if (totalSold < 1000) {
+            buyPrice = basePrice;
+        } else {
+            require(
+                _quantity <= 200 - (totalSold % 200),
+                "Exceed buy for current price"
+            );
+            buyPrice = _calculatePrice(_quantity);
+        }
+
         require(
             token.transferFrom(
                 msg.sender,
                 address(this),
-                price * 10 ** token.decimals()
+                _quantity * buyPrice * 10 ** token.decimals()
             ),
             "Transfer failed"
         );
-        require(totalSold < MAX_BUY, "Exceed limit buy");
 
-        mint(msg.sender, 1);
-        totalSold++;
-        emit Buyed(msg.sender, price);
-
-        if (totalSold > MAX_PRIVATE_BUY) {
-            totalSoldPublic++;
-            checkUpDatePrice();
-        }
+        mint(msg.sender, _quantity);
+        totalSold += _quantity;
+        emit Buyed(msg.sender, buyPrice);
     }
 
     function dropNFTForTeam() external onlyOwner {
-        uint256 numberDropCount = totalSold / 400 - totalDropTimes;
+        uint256 numberDropCount = totalSold / 100 - totalDropTimes;
 
         if (numberDropCount <= 0) {
             revert();
         } else {
-            mint(devAddress, numberDropCount * 40);
+            mint(devAddress, numberDropCount * 10);
             totalDropTimes += numberDropCount;
         }
     }
@@ -111,14 +135,19 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         _safeMint(account, quantity);
     }
 
-    function checkUpDatePrice() private {
-        if (totalSoldPublic % 40 == 0) {
-            price += 20;
-            emit PriceUpdated(price);
-        }
+    function _calculatePrice(uint256 _quantity) private view returns (uint256) {
+        uint256 sellPrice = rangePriceToPrice[
+            (totalSold + _quantity - 1) / 200
+        ];
+        require(sellPrice > 0, "Invalid price");
+        return sellPrice;
     }
 
     function getCurrentPrice() public view returns (uint256) {
-        return price;
+        if (totalSold < 1000) {
+            return basePrice;
+        } else {
+            return rangePriceToPrice[totalSold / 200];
+        }
     }
 }

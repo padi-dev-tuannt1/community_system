@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.17;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "erc721a/contracts/ERC721A.sol";
-import "./interfaces/IERC20.sol";
 
 contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
-    IERC20 token;
+    IERC20Metadata token;
 
     uint256 public constant MAX_SUPPLY = 14000;
     uint256 private constant MAX_BUY = 11000;
+    uint256 private constant RANGE_CHANGE_PRICE = 200;
     uint256 private basePrice = 1000;
     address private devAddress;
 
@@ -26,6 +27,11 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
     error LoyalNFT__ExceedBuyQuantity(uint256 quantity);
     error LoyalNFT__ExceedLimitBuy();
 
+    // We will increase price each 200 NFT sold starting from 1000th NFT
+    // So mapping range price 1000 -1199 => 1000$
+    //                     1200 -1399 => 1010$
+    //                     1400 -1599 => 1020$
+    //                     ....
     mapping(uint256 => uint256) rangePriceToPrice; // (totalSold) /200 => price
 
     constructor(
@@ -35,7 +41,7 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         uint256[] memory prices,
         address _administratorAddress
     ) ERC721A("LoyalNFT", "LNFT") {
-        token = IERC20(_token);
+        token = IERC20Metadata(_token);
         tokenBaseURI = _initBaseURI;
         devAddress = _devAddress;
         for (uint256 i = 0; i < prices.length; i++) {
@@ -44,10 +50,14 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         transferOwnership(_administratorAddress);
     }
 
+    /**
+     * @notice Function to buy NFT with quantity, the quantity should not greater than RANGE_CHANGE_PRICE. The price of NFT base on the NFT sold.
+     * @param _quantity amount of NFT to buy.
+     */
     function buy(uint256 _quantity) external nonReentrant {
         uint256 buyPrice;
 
-        if (_quantity > 200) {
+        if (_quantity > RANGE_CHANGE_PRICE) {
             revert LoyalNFT__ExceedBuyQuantity(_quantity);
         }
 
@@ -59,10 +69,11 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
             buyPrice = basePrice;
         } else {
             require(
-                _quantity <= 200 - (totalSold % 200),
+                _quantity <=
+                    RANGE_CHANGE_PRICE - (totalSold % RANGE_CHANGE_PRICE),
                 "Exceed buy for current price"
             );
-            buyPrice = _calculatePrice(_quantity);
+            buyPrice = _calculatePrice();
         }
 
         require(
@@ -79,6 +90,9 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         emit Buyed(msg.sender, buyPrice);
     }
 
+    /**
+     * @notice Function to drop NFT for dev team. Each 100 NFT sold will drop 10 NFT for dev members.
+     */
     function dropNFTForTeam() external onlyOwner {
         uint256 numberDropCount = totalSold / 100 - totalDropTimes;
 
@@ -90,6 +104,9 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         }
     }
 
+    /**
+     * @notice Function to withdraw the token for the owner
+     */
     function withdraw() external onlyOwner {
         uint256 balance = token.balanceOf(address(this));
         require(balance > 0, "No tokens to withdraw");
@@ -99,6 +116,9 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         emit Withdraw(msg.sender, balance);
     }
 
+    /**
+     * @notice Returns the Uniform Resource Identifier (URI) for `tokenId` token.
+     */
     function tokenURI(
         uint256 tokenId
     ) public view virtual override returns (string memory) {
@@ -114,6 +134,9 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         return baseURI;
     }
 
+    /**
+     * @notice Function to set new base URI only call by owner.
+     */
     function setBaseURI(string calldata newBaseURI) external onlyOwner {
         // Set the new base URI.
         tokenBaseURI = newBaseURI;
@@ -127,6 +150,9 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         return tokenBaseURI;
     }
 
+    /**
+     * @notice Function to mint amount of NFT for an account
+     */
     function mint(address account, uint256 quantity) private {
         require(
             _totalMinted() + quantity <= MAX_SUPPLY,
@@ -135,19 +161,23 @@ contract LoyalNFT is ERC721A, Ownable, ReentrancyGuard {
         _safeMint(account, quantity);
     }
 
-    function _calculatePrice(uint256 _quantity) private view returns (uint256) {
-        uint256 sellPrice = rangePriceToPrice[
-            (totalSold + _quantity - 1) / 200
-        ];
+    /**
+     * @notice Function to calculate the price of NFT.
+     */
+    function _calculatePrice() private view returns (uint256) {
+        uint256 sellPrice = rangePriceToPrice[totalSold / RANGE_CHANGE_PRICE];
         require(sellPrice > 0, "Invalid price");
         return sellPrice;
     }
 
+    /**
+     * @notice Function to get current price of NFT.
+     */
     function getCurrentPrice() public view returns (uint256) {
         if (totalSold < 1000) {
             return basePrice;
         } else {
-            return rangePriceToPrice[totalSold / 200];
+            return rangePriceToPrice[totalSold / RANGE_CHANGE_PRICE];
         }
     }
 }

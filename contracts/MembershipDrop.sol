@@ -5,8 +5,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import {PublicDrop} from "./lib/SeaDropStructs.sol";
 
-import "./interfaces/IERC20.sol";
-
 import {IMembershipDrop} from "./interfaces/IMembershipDrop.sol";
 
 interface IMembershipNFT {

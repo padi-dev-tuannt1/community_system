@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -26,6 +26,7 @@ contract MembershipNFT is ERC721, Ownable, ReentrancyGuard {
         uint256 level,
         uint256 CPBurn
     );
+    event MaxSupplyUpdated(uint256 supply);
 
     struct MultiConfigureStruct {
         uint256 maxSupply;
@@ -108,6 +109,7 @@ contract MembershipNFT is ERC721, Ownable, ReentrancyGuard {
      */
     function setMaxSupply(uint256 newMaxSupply) external _onlyOwnerOrSelf {
         _maxSupply = newMaxSupply;
+        emit MaxSupplyUpdated(newMaxSupply);
     }
 
     /*

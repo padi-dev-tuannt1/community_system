@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.9;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721ReceiverUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "./interfaces/ILoyalNFT.sol";
-import "./interfaces/IERC20.sol";
 
 contract NFTStake is
     Initializable,
@@ -18,7 +18,7 @@ contract NFTStake is
     OwnableUpgradeable
 {
     ILoyalNFT nft;
-    IERC20 rewardToken;
+    IERC20Metadata rewardToken;
 
     enum Status {
         UnStake,
@@ -31,7 +31,7 @@ contract NFTStake is
         uint256 season;
     }
 
-    mapping(address => mapping(uint256 => uint256)) rewardAmounts;
+    mapping(address => mapping(uint256 => uint256)) public rewardAmounts;
     mapping(uint256 => Stake) public stakeInfos;
     // ******** //
     //  EVENTS  //
@@ -62,13 +62,15 @@ contract NFTStake is
 
     function initialize(
         address _nftAddress,
-        address _rewardToken
+        address _rewardToken,
+        address _administratorAddress
     ) public initializer {
         __Ownable_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
+        transferOwnership(_administratorAddress);
         nft = ILoyalNFT(_nftAddress);
-        rewardToken = IERC20(_rewardToken);
+        rewardToken = IERC20Metadata(_rewardToken);
     }
 
     function stake(uint256 tokenId, uint256 _season) external {
@@ -95,7 +97,6 @@ contract NFTStake is
     function createReward(
         address[] calldata stakers,
         uint256[] calldata rewards,
-        uint256 totalReward,
         uint256 _season
     ) external onlyOwner {
         require(stakers.length == rewards.length, "Length mismatch");
@@ -104,12 +105,6 @@ contract NFTStake is
             address who = stakers[i];
             _setReward(who, rewards[i], _season);
         }
-
-        _processPayment(
-            msg.sender,
-            address(this),
-            totalReward * 10 ** rewardToken.decimals()
-        );
     }
 
     function claim(
@@ -120,9 +115,13 @@ contract NFTStake is
         uint256 claimable = rewardAmounts[msg.sender][_season];
         require(claimable > 0, "Nothing to claim");
 
-        _processPayment(address(this), msg.sender, claimable);
+        _processPayment(msg.sender, claimable);
         rewardAmounts[msg.sender][_season] = 0;
         emit Retrieved(msg.sender, claimable, _season);
+    }
+
+    function setRewardToken(IERC20Metadata _rewardToken) external onlyOwner {
+        rewardToken = _rewardToken;
     }
 
     function _unstake(uint256[] calldata tokenIds, uint256 _season) private {
@@ -154,7 +153,6 @@ contract NFTStake is
         uint256 reward,
         uint256 _season
     ) private {
-        require(rewardAmounts[staker][_season] == 0, "Already add reward");
         require(staker != address(0), "Staker cannot be zero address");
         require(staker != address(this), "Cannot reward for self");
         require(reward != 0, "Reward cannot be zero");
@@ -163,17 +161,10 @@ contract NFTStake is
         emit RewardCreated(staker, reward, _season);
     }
 
-    function _processPayment(
-        address from,
-        address to,
-        uint256 amount
-    ) internal {
+    function _processPayment(address to, uint256 amount) internal {
         if (amount == 0) return;
-        if (from == address(this)) {
-            IERC20(rewardToken).transfer(to, amount);
-        } else {
-            IERC20(rewardToken).transferFrom(from, to, amount);
-        }
+        bool success = IERC20Metadata(rewardToken).transfer(to, amount);
+        require(success, "Transfer failed");
     }
 
     function _authorizeUpgrade(

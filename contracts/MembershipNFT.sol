@@ -181,6 +181,14 @@ contract MembershipNFT is ERC721, Ownable, ReentrancyGuard {
         levelURI = newLevelURI;
     }
 
+    function setCPToken(address newCPToken) external onlyOwner {
+        require(
+            newCPToken != address(0),
+            "MembershipNFT: CP token cannot be zero address"
+        );
+        CPtoken = ICPToken(newCPToken);
+    }
+
     function _beforeTokenTransfer(
         address from,
         address to,

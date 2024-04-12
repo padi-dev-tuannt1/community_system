@@ -34,8 +34,8 @@ contract MembershipNFT is ERC721, Ownable, ReentrancyGuard {
         PublicDrop publicDrop;
     }
 
-    ICPToken CPtoken;
-    address drop;
+    ICPToken public CPtoken;
+    address public drop;
     uint256 private _tokenIdCounter;
     uint256 _maxSupply;
 

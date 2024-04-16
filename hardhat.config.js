@@ -64,6 +64,7 @@ module.exports = {
   },
   etherscan: {
     apiKey: {
+      base: Secrets.explorer_key.BASE,
       baseGoerli: Secrets.explorer_key.BASE,
       baseSepolia: Secrets.explorer_key.BASE,
     },

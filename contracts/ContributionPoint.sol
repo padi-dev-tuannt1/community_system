@@ -22,13 +22,11 @@ contract ContributionPoint is ERC20, Ownable, EIP712 {
 
     constructor(
         string memory name,
-        string memory symbol,
-        address _administratorAddress
+        string memory symbol
     ) ERC20(name, symbol) EIP712("CP", "1") {
         _TYPEHASH = keccak256(
             "params(address _requester,uint256 _amount,uint256 _deadline,uint256 _nonce)"
         );
-        transferOwnership(_administratorAddress);
     }
 
     /**
